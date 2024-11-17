@@ -9,7 +9,7 @@
     "metaapi.cloud-sdk": "^27.2.0"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server"
   },
   "author": "",
   "license": "ISC",
