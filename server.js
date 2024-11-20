@@ -1,9 +1,16 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const MetaApi = require("metaapi.cloud-sdk").default;
+const admin = require("firebase-admin");
+admin.initializeApp({
+  credential: admin.credential.cert(require("./blue-screen-robot-firebase-adminsdk-msjme-a31e66c83b.json")), // Path to your service account key
+  databaseURL: "https://blue-screen-robot.firebaseio.com" // Replace with your Firebase database URL
+  
+});
 
 const app = express();
 const PORT = 8080;
+const firestore = admin.firestore();
 
 app.use(bodyParser.json());
 
@@ -13,7 +20,13 @@ const token =
 const api = new MetaApi(token);
 
 // Root route
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
+
+  console.log("Received trade request:");
+
+  const account = await api.metatraderAccountApi.getAccount(accountId);
+    
+
   res.json({
     status: "success",
     message: "Welcome to MetaAPI Microservice",
@@ -27,91 +40,41 @@ app.get("/", (req, res) => {
 
 // Trade route
 app.post("/trade", async (req, res) => {
+  const logsCollection = firestore.collection("trade-logs");
+  const tradeId = `trade-${Date.now()}`;
+  const logs = []; // Array to store all logs
+
+  const log = async (message) => {
+    console.log(message);
+    await logsCollection.add({
+      tradeId,
+      message,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  };
+
   try {
-    console.log("Received trade request:", req.body);
+    await log("Received trade request:");
+    await log(JSON.stringify(req.body, null, 2));
 
-    const {
-      accountId,
-      symbol,
-      tradeType,
-      volume,
-      openPrice,
-      stopLoss,
-      takeProfit,
-      comment,
-      clientId,
-    } = req.body;
-
+    const { accountId, symbol, tradeType, volume } = req.body;
     if (!accountId || !symbol || !tradeType || !volume) {
+      await log("Error: Missing required parameters");
       return res.status(400).json({ error: "Missing required parameters" });
     }
 
-    const account = await api.metatraderAccountApi.getAccount(accountId);
-    console.log("Fetched account:", account.id);
+    // Simulating steps
+    await log(`Processing trade for account ${accountId}...`);
+    // Continue with trade processing
+    await log("Trade completed successfully!");
 
-    const initialState = account.state;
-    const deployedStates = ["DEPLOYING", "DEPLOYED"];
-
-    if (!deployedStates.includes(initialState)) {
-      console.log("Deploying account");
-      await account.deploy();
-    }
-
-    console.log("Waiting for API server to connect to broker");
-    await account.waitConnected();
-
-    const connection = account.getRPCConnection();
-    await connection.connect();
-
-    console.log("Waiting for SDK to synchronize with terminal state");
-    await connection.waitSynchronized();
-
-    let result;
-    if (tradeType === "ORDER_TYPE_BUY") {
-      result = await connection.createLimitBuyOrder(
-        symbol,
-        volume,
-        openPrice,
-        stopLoss,
-        takeProfit,
-        {
-          comment,
-          clientId,
-        }
-      );
-    } else if (tradeType === "ORDER_TYPE_SELL") {
-      result = await connection.createLimitSellOrder(
-        symbol,
-        volume,
-        openPrice,
-        stopLoss,
-        takeProfit,
-        {
-          comment,
-          clientId,
-        }
-      );
-    } else {
-      return res.status(400).json({ error: "Invalid tradeType" });
-    }
-
-    console.log("Trade result:", result);
-    res.json({
-      message: "Trade successful",
-      result: result.stringCode,
-      tradeDetails: result,
-    });
-
-    if (!deployedStates.includes(initialState)) {
-      console.log("Undeploying account");
-      await connection.close();
-      await account.undeploy();
-    }
+    res.json({ message: "Trade started", tradeId });
   } catch (err) {
-    console.error("Error occurred:", err);
+    await log(`Error occurred: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
